@@ -1,0 +1,3 @@
+xlfile:  '/media/vmshare/caNano/Protocols-With-DOIs-8-15-25.xlsx'
+sheet: 'Sheet1'
+writedir: './pages/'

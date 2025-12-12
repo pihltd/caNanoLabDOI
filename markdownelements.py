@@ -1,0 +1,5 @@
+header = "# caNanoLab DOI \n"
+separator = "-------------------------- \n"
+tableheader = "| Property | Value | \n"
+tableseparator = "|----------|---------| \n"
+fileheader = "| File Name | File Type | \n"

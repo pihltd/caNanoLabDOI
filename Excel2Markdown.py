@@ -3,7 +3,21 @@ import pandas as pd
 import numpy as np
 import argparse
 import yaml
+import os
+import sqlite3
 
+
+header = "# caNanoLab DOI \n"
+separator = "-------------------------- \n"
+tableheader = "| Property | Value | \n"
+tableseparator = "|----------|---------| \n"
+fileheader = "| File Name | File Type | DOI | \n"
+fileseparator = "|----------|---------|---------|  \n"
+
+
+# General TODO:
+# Write GraphQL query for GC once data model goes live
+# Might need a new filenaming convention, this is based on data that GC may not use
 
 def readYAML(yamlfile):
     with open(yamlfile) as f:
@@ -11,111 +25,262 @@ def readYAML(yamlfile):
     return yamljson
 
 
+
+def readXL(xlfile, sheetlist):
+    df_collection = {}
+    for sheet in sheetlist:
+        temp_df = pd.read_excel(xlfile, sheet_name=sheet)
+        df_collection[sheet] = temp_df
+    return df_collection
+
+
+def sampleRows(sampleID, sample_df):
+    sampleID = str(sampleID)
+    returnthings = []
+    if "|" in sampleID:
+        samplelist = sampleID.split("|")
+    else:
+        samplelist = [sampleID]
+    for sample in samplelist:
+        sample = int(sample)
+        temp_df = sample_df.query('sample_id == @sample')
+        for index, row in temp_df.iterrows():
+            returnthings.append({"id":row['sample_id'], "name": row['Sample_Name'], "org": row['Organization_Name']})
+    return returnthings
+
+
+def charDataRows(sampleID, char_df):
+    sampleID = str(sampleID)
+    returnthings = []
+    if "|" in sampleID:
+        samplelist = sampleID.split("|")
+    else:
+        samplelist = [sampleID]
+    for sample in samplelist:
+        sample = int(sample)
+        temp_df = char_df.query('parentSampleID == @sample')
+        for index, row in temp_df.iterrows():
+            returnthings.append({'cid': row['characterization_id'], 'type': row['characterization_type'], 'assay':[row['assay_type']]})
+    return returnthings
+
+
+def compDataRow(sampleID, comp_df):
+    sampleID = str(sampleID)
+    returnthings = []
+    if "|" in sampleID:
+        samplelist = sampleID.split("|")
+    else:
+        samplelist = [sampleID]
+    for sample in samplelist:
+        sample = int(sample)
+        temp_df = comp_df.query('parentSampleID == @sample')
+        for index, row in temp_df.iterrows():
+            returnthings.append({'type': row['nanomaterial_entity']})
+    return returnthings
+
+
+def fileRowData(longfilename, file_df):
+    returnthings = []
+    filename = longfilename.split("/")[-1]
+    temp_df = file_df.query('file_name == @filename')
+    for index, row in temp_df.iterrows():
+        returnthings.append({"name": row['file_name'], "type": row['file_type']})
+    return returnthings
+
+
+
+def pullKnownFiles(df, cursor):
+    known = []
+    seriieslist = []
+    main_df = df['Protocol']
+
+    for row in cursor.execute("SELECT filename FROM fileinfo "):
+        known.append(row[0])
+    for index, row in main_df.iterrows():
+        if f"{row.protocol_pk_id}.md" not in known:
+            seriieslist.append(row)
+    new_df = pd.DataFrame(seriieslist)
+    df['Protocol'] = new_df
+    return df
+
+def deleteTest(cursor, conn):
+    cursor.execute("DELETE FROM fileinfo WHERE filename LIKE '11413115%'")
+    conn.commit()
+
+
 def writeDOIFiles(doi_df, writedir, logo):
 
+    main_df = doi_df['Protocol']
+
     filenames = []
+    dbdata = []
 
-    header = "# caNanoLab DOI\n"
-    separator = "--------------------------\n"
-    tableheader = "| Property | Value |\n"
-    tableseparator = "|----------|---------|\n"
-
-    for index, row in doi_df.iterrows():
+    for index, row in main_df.iterrows():
         outfile = f"{writedir}{row['protocol_pk_id']}.md"
-        filenames.append({row['protocol_abbreviation']: f"./{row["protocol_pk_id"]}.md"})
         with open(outfile, 'w') as f:
             f.write(logo)
             f.write(header)
             f.write(separator)
             f.write(f"## DOI:\t")
-            if row['doi'] is not np.nan:
-                f.write(f"[{row['doi']}](http://dx.doi.org/{row['doi']})\n")
+            if row['doi'] is np.nan:
+                f.write("Not Available \n")
+                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}.md", 'Protocol', 'Not Available'))
             else:
-                f.write("Not Available\n")
+                f.write(f"[{row['doi']}](http://dx.doi.org/{row['doi']}) \n")
+                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}.md", 'Protocol', row.doi))
             f.write(f"**Protocol Name:**\t")
-            f.write(f"{row['protocol_name']} \\")
+            f.write(f"{row['protocol_name']}  \n")
             f.write(f"**Protocol Abbreviation:**\t")
-            f.write(f"{row['protocol_abbreviation']} \\")
+            f.write(f"{row['protocol_abbreviation']}  \n")
             f.write(f"**Protocol Version:**\t")
-            f.write(f"{row['protocol_version']} \\")
+            f.write(f"{row['protocol_version']}  \n")
             f.write(separator)
             f.write("### Resource Type:\t")
-            f.write("publication_type\n")
+            #need to figure out the Protocol/Publication thing here
+            f.write("Protocol \n")
             f.write("### Publication Status:\t")
-            f.write("publication_status\n")
+            f.write("publication_status \n")
             f.write(f"#### Created Date:\t")
-            f.write(f"{row['created_date']}\n")
+            f.write(f"{row['created_date']} \n")
             f.write(separator)
             f.write(tableheader)
             f.write(tableseparator)
-            f.write("| Sample ID | sample_id |\n")
-            f.write("| Sample Name | sample_name |\n")
-            f.write("| Organization | organization_name |\n")
-            f.write("| Characterization ID | charid |\n")
-            f.write("| Characterization Type | characterization_type |\n")
-            f.write("| Assay Type | characterization_name |\n")
-            f.write("| Protocol ID | protocol_id |\n")
-            f.write(f"| Protocol Type | {row['protocol_type']} |\n")
-            f.write(f"| Protocol Name |{row['protocol_name']} |\n")
-            f.write("| Nanomaterial Entity Type | nanomaterial_entity_type |\n")
-            f.write("| Composing Element Type | composing_element_type |\n")
-            f.write("| Composing Element Chemical Name | composing_element_chemical_name |\n")
-            f.write("| Nanomaterial Entity File Type | nanomaterial_entity_file_type |\n")
-            f.write("| Chemical Association File Type Title | chemical_association_file_type_title |\n")
+            if pd.notna(row['parentSampleID']):
+                sampledata = sampleRows(row['parentSampleID'], doi_df['Sample Node'])
+                for entry in sampledata:
+                    f.write(f"| Sample ID | {entry['id']} | \n")
+                    f.write(f"| Sample Name | {entry['name']} | \n")
+                    f.write(f"| Organization | {entry['org']} | \n")
+                chardata = charDataRows(row['parentSampleID'], doi_df['Characterization '])
+                for charentry in chardata:
+                    f.write(f"| Characterization ID | {charentry['cid']} | \n")
+                    f.write(f"| Characterization Type | {charentry['type']} | \n")
+                    f.write(f"| Assay Type | {charentry['assay']} | \n")
+                compdata = compDataRow(row['parentSampleID'], doi_df['Composition'])
+                for compentry in compdata:
+                    f.write(f"| Nanomaterial Entity Type | {compentry['type']} | \n")
+            f.write(f"| Protocol ID | {row['protocol_pk_id']} | \n")
+            f.write(f"| Protocol Type | {row['protocol_type']} | \n")
+            f.write(f"| Protocol Name |{row['protocol_name']} | \n")
+            f.write("| Composing Element Type | composing_element_type | \n")
+            f.write("| Composing Element Chemical Name | composing_element_chemical_name | \n")
+            if pd.notna(row['file_name']):
+                f.write(f"| File Name | {row['file_name']} | \n")
+                f.write(f"| File URI | {row['file_uri']} | \n")
+            f.write("| Nanomaterial Entity File Type | nanomaterial_entity_file_type | \n")
+            f.write("| Chemical Association File Type Title | chemical_association_file_type_title | \n")
             f.close()
-    return filenames
+    return dbdata
 
 
 
-def writeIndexFile(filenames, writedir, logo):
 
-    separator = "--------------------------\n"
-
-
+def writeIndexFile(cursor, writedir, logo):
     indexfilename = f"{writedir}index.md"
     with open(indexfilename, 'w') as r:
         r.write(logo)
-        r.write("## Example Layout Pages)\n")
+        r.write("## Example Layout Pages) \n")
         r.write(separator)
-        r.write("[Table Example](./demopage-table.md) \\\n")
-        r.write("[Text Example](./demopage-text.md) \\\n")
-        r.write("[NCI Logo](./demopage-table-NCILogo.md) \\\n")
-        r.write("[caNano Logo](./demopage-table-caNanoLogo.md) \\\n")
-        r.write("[General Commons Logo](./demopage-table-GCLogo.md) \\\n")
-        r.write("# caNanoLab DOI Repository\n")
+        r.write("[Table Example](./demopage-table.md)  \n")
+        r.write("[Text Example](./demopage-text.md)  \n")
+        r.write("[NCI Logo](./demopage-table-NCILogo.md)  \n")
+        r.write("[caNano Logo](./demopage-table-caNanoLogo.md)  \n")
+        r.write("[General Commons Logo](./demopage-table-GCLogo.md)  \n")
+        r.write("# caNanoLab DOI Repository \n")
         r.write(separator)
-        r.write("This repository contains the DOI landing pages for the caNanoLab project.\n")
-        r.write("\n")
-        r.write("## DOI Pages\n")
+        r.write("This repository contains the DOI landing pages for the caNanoLab project. \n")
+        r.write(" \n")
+        r.write("## DOI Pages \n")
         r.write(separator)
-        for entry in filenames:
-            for abbreviation, url in entry.items():
-                r.write(f"[{abbreviation}]({url}) \\\n")
+        r.write(fileheader)
+        r.write(fileseparator)
+        for row in cursor.execute("SELECT title, filename, filetype, doi FROM fileinfo"):
+            r.write(f"| [{row[0]}](./{row[1]}) | {row[2]} | {row[3]} | \n")
         r.close()
 
 
 
+
+def excelCheck(xlfile):
+    doi_df = pd.ExcelFile(xlfile)
+    print(doi_df.sheet_names)
+
+
 def main(args):
 
-    logo = "![General Commons Logo](./assets/images/crdc-logo.svg)\n"
-    
+    logo = "![General Commons Logo](./assets/images/crdc-logo.svg) \n"
+    cursor = None
 
-
-    if args.versbose >= 1:
+    if args.verbose >= 1:
         print("Reading configuration file")
     configs = readYAML(args.configfile)
 
-    if args.verbose >= 1:
-        print(f"Creating datafrom from {configs['xlfile']}")
-    doi_df = pd.read_excel(configs['xlfile'], sheet_name=configs['sheet'])
 
-    if args.verbose >= 1:
-        print("Writing individual DOI files")
-    doi_file_list = writeDOIFiles(doi_df, configs['writedir'], logo)
+    if args.verbose >- 1:
+        print(f"Checking for sqlite file {configs['writedir']}{configs['sqlitefile']}")
+    if os.path.isfile(f"{configs['writedir']}{configs['sqlitefile']}"):
+        if args.verbose >=1:
+            print("Datadase existing, establishing connection")
+            conn = sqlite3.connect(f"{configs['writedir']}{configs['sqlitefile']}")
+            cursor = conn.cursor()
+    else:
+        if args.verbose >= 1:
+            print("No database found, creating a new one")
+        conn = sqlite3.connect(f"{configs['writedir']}{configs['sqlitefile']}")
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE fileinfo(title, filename, filetype, doi)")
 
-    if args.verbose >=1:
-        print("Writing index.md file")
-    writeIndexFile(doi_file_list, configs['writedir'], logo)
+
+
+    if configs['scope'] == 'all':
+        if args.verbose >= 1:
+            print("Getting list of existing files")
+        if args.verbose >= 1:
+            print(f"Creating datafrom from {configs['xlfile']}")
+        doi_df = readXL(configs['xlfile'], configs['sheet'])
+
+        if args.verbose >= 1:
+            print("Writing individual DOI files")
+        dbdata = writeDOIFiles(doi_df, configs['writedir'], logo)
+        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?)", dbdata)
+        conn.commit()
+
+        if args.verbose >=1:
+            print("Writing index.md file")
+        writeIndexFile(cursor, configs['writedir'], logo)
+
+
+    elif configs['scope'] == 'new':
+        #
+        #
+        #     FOR TESTING ONLY
+        #
+        deleteTest(cursor, conn)
+        #
+        #      FOR TESTING ONLY
+        #
+        if args.verbose >= 1:
+            print("Building new  pagees")
+        doi_df = readXL(configs['xlfile'], configs['sheet'])
+        doi_df = pullKnownFiles(doi_df, cursor)
+        dbdata = writeDOIFiles(doi_df, configs['writedir'], logo)
+        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?)", dbdata)
+        conn.commit()
+        writeIndexFile(cursor, configs['writedir'], logo)
+
+
+    elif configs['scope'] == 'index':
+        if args.verbose >= 1:
+            print('Generating a new index.md file')
+        if args.verbose >=1:
+            print("Writing index.md file")
+        # TODO: Generate a new doi_file_list
+        writeIndexFile(cursor, configs['writedir'], logo)
+
+
+    else:
+        print('Incorrect scope setting, must be one of "all", "new", or "index"')
+
 
 
 

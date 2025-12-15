@@ -1,6 +1,6 @@
 # Don't need the generated pages in github
 pages/
-
+htmlpages/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

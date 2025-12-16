@@ -159,74 +159,80 @@ def main(args):
         conn = sqlite3.connect(f"{configs['writedir']}{configs['sqlitefile']}")
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE fileinfo(title, filename, filetype, doi)")
+        
     ###########################################
     #                                         #
     #                 ALL scope               #
     #                                         #
     ###########################################
+
     if configs['scope'] == 'all':
         if args.verbose >= 1:
+            print("Scope is all pages")
             print("Getting list of existing files")
         if args.verbose >= 1:
             print(f"Creating datafrom from {configs['xlfile']}")
         doi_df = readXL(configs['xlfile'], configs['sheet'])
-
+        if args.verbose >= 1:
+            print("Clearing existing database")
+        cursor.execute("DELETE FROM fileinfo")
         if args.verbose >= 1:
             print("Writing individual DOI files")
         dbdata = writeDOIFiles(doi_df, configs['writedir'], logo)
-        for dbentry in dbdata:
-            filename = f"{ dbentry[1]}"
-            # Make sure that existing rows aren't duplicated.  The query returns 1 if the file isn't found and 0 if it is
-            #print(f"Check query: {cursor.execute("SELECT EXISTS(SELECT 1 FROM fileinfo WHERE filename = ?)", [filename])}")
-            #cursor.execute("SELECT EXISTS(SELECT 1 FROM fileinfo WHERE filename = ?)", [filename])
-            #print(f"Searching db for {filename}")
-            cursor.execute("SELECT filename FROM fileinfo WHERE filename = ?", [filename])
-            #print(len(cursor.fetchall()))
-            #print(type(len(cursor.fetchall())))
-            #print(f"Query check result: {cursor.fetchone()}")
-            #testthing = len(cursor.fetchall())
-            #print(f"Testhing has a value of {testthing} and is of type {type(testthing)}")
-            if len(cursor.fetchall()) <= int(0):
-                print(f"Inserting {dbentry}")
-                cursor.execute("INSERT INTO fileinfo VALUES(?,?,?,?)", dbentry)
-                conn.commit()
+        if args.verbose >= 1:
+            print(f"Adding info to database {configs['sqlitefile']}")
+        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?)", dbdata)
+        conn.commit()
 
-        if args.verbose >=1:
+        if args.verbose >= 1:
             print("Writing index.html file")
         writeIndexFile(cursor, configs['writedir'], logo)
+
     ###########################################
     #                                         #
     #                 INDEX scope             #
     #                                         #
     ###########################################
+
     elif configs['scope'] == 'index':
         if args.verbose >= 1:
-            print('Generating a new index.md file')
-        if args.verbose >=1:
-            print("Writing index.md file")
-        # TODO: Generate a new doi_file_list
+            print("Scope is index page only")
+            print('Generating a new index.html file')
         writeIndexFile(cursor, configs['writedir'], logo)
+
     ###########################################
     #                                         #
     #                 NEW scope               #
     #                                         #
     ###########################################
+
     elif configs['scope'] == 'new':
         #
         #
         #     FOR TESTING ONLY
         #
-        deleteTest(cursor, conn)
+        # deleteTest(cursor, conn)
         #
         #      FOR TESTING ONLY
         #
         if args.verbose >= 1:
-            print("Building new  pagees")
+            print("Scope is new pages only")
+            print(f"Reading Excel file {configs['xlfile']}")
         doi_df = readXL(configs['xlfile'], configs['sheet'])
+        if args.verbose >= 1:
+            print("Removing existing files")
         doi_df = pullKnownFiles(doi_df, cursor)
+        if args.verbose >= 1:
+            print("Writing new DOI files")
         dbdata = writeDOIFiles(doi_df, configs['writedir'], logo)
+        if args.verbose >= 1:
+            print(f"Updating database {configs['sqlitefile']} with new files")
+        if args.verbose >= 2:
+            print(f"Data Update:\n{dbdata}")
         cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?)", dbdata)
         conn.commit()
+        if args.verbose >= 1:
+            print("Writing new index.html file")
         writeIndexFile(cursor, configs['writedir'], logo)
 
     else:

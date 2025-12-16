@@ -11,8 +11,10 @@ header = "# caNanoLab DOI \n"
 separator = "-------------------------- \n"
 tableheader = "| Property | Value | \n"
 tableseparator = "|----------|---------| \n"
-fileheader = "| File Name | File Type | DOI | \n"
-fileseparator = "|----------|---------|---------|  \n"
+fileheader = "| DOI | Protocol Name | \n"
+fileseparator = "|----------|---------|  \n"
+
+gcurl = "https://general.datacommons.cancer.gov/#/data"
 
 
 # General TODO:
@@ -111,65 +113,30 @@ def deleteTest(cursor, conn):
 def writeDOIFiles(doi_df, writedir, logo):
 
     main_df = doi_df['Protocol']
-
-    filenames = []
     dbdata = []
 
     for index, row in main_df.iterrows():
-        outfile = f"{writedir}{row['protocol_pk_id']}.md"
-        with open(outfile, 'w') as f:
-            f.write(logo)
-            f.write(header)
-            f.write(separator)
-            f.write(f"## DOI:\t")
-            if row['doi'] is np.nan:
-                f.write("Not Available \n")
-                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}.md", 'Protocol', 'Not Available'))
-            else:
-                f.write(f"[{row['doi']}](http://dx.doi.org/{row['doi']}) \n")
-                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}.md", 'Protocol', row.doi))
-            f.write(f"**Protocol Name:**\t")
-            f.write(f"{row['protocol_name']}  \n")
-            f.write(f"**Protocol Abbreviation:**\t")
-            f.write(f"{row['protocol_abbreviation']}  \n")
-            f.write(f"**Protocol Version:**\t")
-            f.write(f"{row['protocol_version']}  \n")
-            f.write(separator)
-            f.write("### Resource Type:\t")
-            #need to figure out the Protocol/Publication thing here
-            f.write("Protocol \n")
-            f.write("### Publication Status:\t")
-            f.write("publication_status \n")
-            f.write(f"#### Created Date:\t")
-            f.write(f"{row['created_date']} \n")
-            f.write(separator)
-            f.write(tableheader)
-            f.write(tableseparator)
-            if pd.notna(row['parentSampleID']):
-                sampledata = sampleRows(row['parentSampleID'], doi_df['Sample Node'])
-                for entry in sampledata:
-                    f.write(f"| Sample ID | {entry['id']} | \n")
-                    f.write(f"| Sample Name | {entry['name']} | \n")
-                    f.write(f"| Organization | {entry['org']} | \n")
-                chardata = charDataRows(row['parentSampleID'], doi_df['Characterization '])
-                for charentry in chardata:
-                    f.write(f"| Characterization ID | {charentry['cid']} | \n")
-                    f.write(f"| Characterization Type | {charentry['type']} | \n")
-                    f.write(f"| Assay Type | {charentry['assay']} | \n")
-                compdata = compDataRow(row['parentSampleID'], doi_df['Composition'])
-                for compentry in compdata:
-                    f.write(f"| Nanomaterial Entity Type | {compentry['type']} | \n")
-            f.write(f"| Protocol ID | {row['protocol_pk_id']} | \n")
-            f.write(f"| Protocol Type | {row['protocol_type']} | \n")
-            f.write(f"| Protocol Name |{row['protocol_name']} | \n")
-            f.write("| Composing Element Type | composing_element_type | \n")
-            f.write("| Composing Element Chemical Name | composing_element_chemical_name | \n")
-            if pd.notna(row['file_name']):
-                f.write(f"| File Name | {row['file_name']} | \n")
-                f.write(f"| File URI | {row['file_uri']} | \n")
-            f.write("| Nanomaterial Entity File Type | nanomaterial_entity_file_type | \n")
-            f.write("| Chemical Association File Type Title | chemical_association_file_type_title | \n")
-            f.close()
+        if row['doi'] is not np.nan:
+            outfile = f"{writedir}{row['protocol_pk_id']}.md"
+            with open(outfile, 'w') as f:
+                url = f"http://dx.doi.org/{row.doi}"
+                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}", 'Protocol', row.doi))
+                f.write(logo)
+                f.write(header)
+                f.write(separator)
+                f.write(f"**Protocol Type:**\t{row.protocol_type} \n")
+                f.write(f"**Protocol Name:**\t{row.protocol_name} \n")
+                f.write(f"**Protocol Abbreviation:**\t{row.protocol_abbreviation} \n")
+                f.write(f"**Protocol Version:**\t{row.protocol_version} \n")
+                f.write(separator)
+                f.write(f"**DOI:**\t{url}")
+                f.write(f"**Protocol File:**\t{row.file_name}")
+                f.write(f"**File Title:**\t{row.title}")
+                f.write(f"**Description:**\t{row.description}")
+                f.write(separator)
+                f.write("**Resource Type:**\tProtocol")
+                f.write(f"**Data Access:**\t{gcurl}")
+                f.close()
     return dbdata
 
 
@@ -195,7 +162,8 @@ def writeIndexFile(cursor, writedir, logo):
         r.write(fileheader)
         r.write(fileseparator)
         for row in cursor.execute("SELECT title, filename, filetype, doi FROM fileinfo"):
-            r.write(f"| [{row[0]}](./{row[1]}) | {row[2]} | {row[3]} | \n")
+            #r.write(f"| [{row[0]}](./{row[1]}) | {row[2]} | {row[3]} | \n")
+            r.write(f"| [{row[3]}](./{row[1]}) | {row[0]} | \n")
         r.close()
 
 

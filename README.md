@@ -12,7 +12,7 @@ The caNanoLab project moved to NCI and as a result there is a need to support th
 
 This script reads and Excel file containing caNanoLab data (for now, will be moved to GC API when caNanoLab data are loaded) and a YAML configuration file and generates an HTML page for each DOI.  It also generates an index.html page that lists all the pages that have been created.
 
-*Usage:* python3 Excel2HTML.py -c <configuration file> -v <verbosity>
+*Usage:* python3 Excel2HTML.py -c \<configuration file> -v \<verbosity>
 
 #### Config file options:
 

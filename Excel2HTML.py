@@ -65,8 +65,10 @@ def writeDOIFiles(doi_df, writedir, logo):
         if row['doi'] is not np.nan:
             outfile = f"{writedir}{row['protocol_pk_id']}.html"
             with open(outfile, 'w') as f:
-                url = f"http://dx.doi.org/{row.doi}"
-                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}", 'Protocol', row.doi))
+                #doi = row.doi
+                #doi = doi.strip()
+                url = f"http://dx.doi.org/{row.doi.strip()}"
+                dbdata.append((row.protocol_name, f"{row.protocol_pk_id}", 'Protocol', row.doi.strip()))
                 f.write(pageheader1.format(url))
                 f.write(pageheader2)
                 f.write("<body>")

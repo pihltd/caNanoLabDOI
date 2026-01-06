@@ -1,0 +1,4 @@
+dataCiteUrl: 'https://api.datacite.org/dois/'
+#https://api.test.datacite.org/dois/{id}
+doiprefix: '10.17917'
+excelfile: '/media/vmshare/caNano/GC Data Mapping_submission_templates_12032025.xlsx'

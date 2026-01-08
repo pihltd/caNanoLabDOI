@@ -28,3 +28,4 @@ error_df = pd.DataFrame(errorlist)
 full_df = pd.DataFrame(fulllist)
 
 full_df.to_csv('/media/sf_VMShare/caNano/migrationReport.csv', sep="\t", index=False)
+error_df.to_csv('/media/sf_VMShare/caNano/migrationErrorReport.csv', sep="\t", index=False)

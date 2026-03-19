@@ -12,5 +12,6 @@ sheet:
   - 'Investigator'
 writedir: './pages/'
 # The scope entry determines if all files are created or only new files.  Valid values are 'all' (Generate and entire new set of .md files),  'new' (only generate new DOI files), and 'index (only generate a new index.md file)'
-scope: 'new'
+scope: 'all'
 sqlitefile: 'canano.db'
+apiurl: 'https://general-qa2.datacommons.cancer.gov/v1/graphql/'

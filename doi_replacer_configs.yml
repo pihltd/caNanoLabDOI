@@ -1,7 +1,7 @@
 dataCiteUrl: 'https://api.datacite.org/dois/'
 #https://api.test.datacite.org/dois/{id}
-testrun: True
-tier: 'test'
+testrun: False
+tier: 'prod'
 doiprefix: '10.17917'
 excelfile: '/media/sf_VMShare/caNano/GC Data Mapping_submission_templates_12032025.xlsx'
 logfile: '/media/sf_VMShare/caNano/doi_update_log.txt'

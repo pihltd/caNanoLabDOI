@@ -59,10 +59,12 @@ def dataCiteRequest(doi_prefix, doi_suffix, payload, tier, loghandle):
     else:
         return "Incorrect Tier provided, please use 'test' or 'prod'"
     try:
+        print(f"Trying server{server} Prefix {doi_prefix} Suffix {doi_suffix}")
         headers = {"accept": "application/vnd.api+json"}
         # From Bill's script
         url = f"https://{server}/dois/{doi_prefix}/{doi_suffix}"
-        response = requests.put(url, auth=HTTPBasicAuth(USER, PASSWORD), headers=headers, json=payload)
+        print(f"Sending URL {url}")
+        response = requests.put(url, auth=HTTPBasicAuth(USER, PASSWORD), headers=headers, json=payload, verify=False)
         if response.status_code == 200:
             parsed = json.loads(response.text)
             loghandle.write(f"URL:\t{url}\n{parsed}\n")
@@ -120,7 +122,7 @@ def main(args):
             }
         }
 
-        dataCiteRequest(doi_prefix=doiprefix, doi_suffix=doisuffix,payload=updatejson,tier='test', loghandle=lf)
+        dataCiteRequest(doi_prefix=doiprefix, doi_suffix=doisuffix,payload=updatejson,tier=configs['tier'], loghandle=lf)
         #dataCiteDryRun(doi_prefix=doiprefix, doi_suffix=doisuffix, payload=updatejson, tier=configs['tier'], loghandle=lf)
     lf.close()
 

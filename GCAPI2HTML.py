@@ -43,6 +43,62 @@ gcurl = "https://general.datacommons.cancer.gov/#/data"
 header = "<h1> caNanoLab DOI </h1>"
 separator = "<hr>"
 
+javascriptFetch = """
+<script>
+            document.getElementById('downloadLink').addEventListener('click', async function(e) {
+                e.preventDefault();
+                
+                const originalText = this.textContent;
+                const apiUrl = this.href;
+                
+                try {
+                    // Show loading state
+                    this.textContent = 'Downloading...';
+                    this.style.pointerEvents = 'none';
+                    
+                    console.log('Fetching signed URL from:', apiUrl);
+                    
+                    // Fetch the signed URL from the API
+                    const response = await fetch(apiUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to retrieve signed URL: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Received signed URL data:', data);
+                    
+                    if (!data.url) {
+                        throw new Error('No URL found in response');
+                    }
+                    
+                    const signedUrl = data.url;
+                    
+                    // Method 1: Try direct navigation (simplest, works if S3 has proper headers)
+                    window.location.href = signedUrl;
+                    
+                    // Reset after a delay
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                        this.style.pointerEvents = 'auto';
+                    }, 2000);
+                    
+                } catch (error) {
+                    console.error('Download error:', error);
+                    alert(`Error downloading file: ${error.message}\n\nPlease check the browser console for details.`);
+                    this.textContent = originalText;
+                    this.style.pointerEvents = 'auto';
+                }
+            });
+        </script>
+"""
+
+
 def readYAML(yamlfile):
     with open(yamlfile) as f:
         yamljson = yaml.load(f, Loader=yaml.FullLoader)
@@ -57,22 +113,73 @@ def readXL(xlfile, sheetlist):
         df_collection[sheet] = temp_df
     return df_collection
 
+def getFileURL(filename, url):
+    #url = "https://general.datacommons.cancer.gov/v1/graphql/"
+    vars = {"phs_accession": "10.17917", "file_name": filename}
+    filequery = """
+        query caNanoFiles(
+        $phs_accession: String!,
+        $file_name: [String]!
+        ){
+        files(
+            phs_accession: $phs_accession,
+            file_names: $file_name
+        ){
+            file_id
+            file_url_in_cds
+        }
+        }"""
+    
+    result = runBentoAPIQuery(url=url, query=filequery, variables=vars)
+    #print(f"Filename: {filename}\nResult: {result}\n")
+    resultlist = result['data']['files']
+    if len(resultlist) >= 1:
+        #return resultlist[0]['file_id'].split("/")[-1]
+        temp = resultlist[0]['file_id']
+        fileid = temp.split("/")[-1]
+        return f"https://nci-crdc.datacommons.io/user/data/download/{fileid}"
+        
+    else:
+        return None
+    
+
+def processFileName(filename):
+    if filename is np.nan:
+        return None
+    elif filename is None:
+        return None
+    elif "http" in filename:
+        return None
+    elif "protocol" in filename:
+        temp = filename.split("/")
+        return temp[-1]
+    else:
+        return filename
+    
 
 
-def writeDOIFiles(doi_df, writedir, logo, verbose=0):
+
+
+def writeDOIFiles(doi_df, writedir, logo, graphqlurl, verbose=0):
 
     #main_df = doi_df['Protocol']
     #dbdata = []
     
 
     for index, row in doi_df.iterrows():
-    #if row['doi'] is not np.nan:
+        print(row)
+        if row['doi'] is not None:
             outfile = f"{writedir}{row['protocol_pk_id']}.html"
             if verbose >= 2:
                 print(f"Writing {outfile}")
             with open(outfile, 'w') as f:
                 url = f"http://dx.doi.org/{row.doi.strip()}"
-                #dbdata.append((row.protocol_name, f"{row.protocol_pk_id}", 'Protocol', row.doi.strip()))
+                # Need to grab file name and file URL to boot
+                filename = processFileName(row.file_name)
+                if filename is not None:
+                    file_url = getFileURL(filename, graphqlurl)
+                else:
+                    file_url = None
                 f.write(pageheader1.format(url))
                 f.write(pageheader2)
                 f.write("<body>")
@@ -85,16 +192,17 @@ def writeDOIFiles(doi_df, writedir, logo, verbose=0):
                 #f.write("<p><b>Protocol Version:</b> {}".format(row.protocol_version))
                 f.write(separator)
                 f.write("<p><b>DOI:</b> <a href = {}>{}</a></p>".format(url, url))
+                f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
                 #f.write("<p><b>Protocol File:</b> {}".format(row.file_name))
                 #f.write("<p><b>File Title:</b> {}</p>".format(row.title))
                 #f.write("<p><b>Description:</b></b> {}".format(row.description))
                 f.write(separator)
                 f.write("<p><b>Resource Type:</b>  Protocol</p>")
                 f.write("<p><b>Data Access:</b> <a href ={}>{}</a><p>".format(gcurl, gcurl))
+                f.write(javascriptFetch)
                 f.write("</body>")
                 f.write("</html>")
             f.close()
-    #return dbdata
 
 
 
@@ -132,7 +240,7 @@ def pullKnownFiles(df, cursor):
 
     for row in cursor.execute("SELECT filename FROM fileinfo "):
         known.append(row[0])
-    for index, row in main_df.iterrows():
+    for index, row in df.iterrows():
         if f"{row.protocol_pk_id}.md" not in known:
             seriieslist.append(row)
     new_df = pd.DataFrame(seriieslist)
@@ -160,7 +268,7 @@ def runBentoAPIQuery(url, query, variables=None):
     else:
         return (f"Error Code: {results.status_code}\n{results.content}")
 
-def buildDOIDataFrame():
+def buildDOIDataFrame(apiurl):
     allquery = """
          query allProtocols(
                 $phs: String!,
@@ -170,6 +278,7 @@ def buildDOIDataFrame():
                 protocolsCount(phs_accession: $phs)
                 protocols(phs_accession: $phs, first: $first, offset: $offset){
                     doi
+                    file_id
                     phs_accession
                     protocol_name
                     protocol_pk_id
@@ -182,21 +291,65 @@ def buildDOIDataFrame():
                 protocolsCount(phs_accession: $phs)
             }
         """
+    
+    filequery = """
+        query getFileInfo(
+            $phs_accession: String!,
+            $file_ids: [String!]
+            ){
+            files(
+                phs_accession: $phs_accession,
+                file_ids: $file_ids){
+                file_description
+                file_name
+                file_type
+                release_datetime
+            }
+            }
+    """
 
-    devurl = 'https://general-dev2.datacommons.cancer.gov/v1/graphql/'
-    countvars =  {"phs":"GC000001"}
+    #devurl = 'https://general-dev2.datacommons.cancer.gov/v1/graphql/'
+    countvars =  {"phs":"10.17917"}
 
-    countres = runBentoAPIQuery(devurl, protocolcountquery,countvars)
+    countres = runBentoAPIQuery(apiurl, protocolcountquery,countvars)
     count = countres['data']['protocolsCount']
 
-    variables = {"phs":"GC000001", "first":count, "offset": 0}
-    res = runBentoAPIQuery(devurl, allquery, variables)
+    variables = {"phs":"10.17917", "first":count, "offset": 0}
+    res = runBentoAPIQuery(apiurl, allquery, variables)
 
     doilist = []
     count = res['data']['protocolsCount']
     for entry in res['data']['protocols']:
-        if '10' in entry['doi']:
-            doilist.append(entry)
+        if  entry['doi'] is not np.nan:
+            if entry['file_id'] is None:
+                doilist.append({"doi": entry['doi'],
+                            "file_id": entry['file_id'],
+                            "phs_accession": entry['phs_accession'],
+                            "protocol_name": entry['protocol_name'],
+                            "protocol_pk_id": entry['protocol_pk_id'],
+                            "protocol_type": entry['protocol_type'],
+                            "file_name": None,
+                            "file_type": None,
+                            "file_description": None,
+                            "release_datetime": None
+                            })
+            else:
+                filevars = {"phs_accession": "10.17917", "file_ids": [entry['file_id']]}
+                fileres = runBentoAPIQuery(apiurl, filequery, filevars)
+                print(filevars)
+                print(fileres)
+                fileinfo = fileres['data']['files'][0]
+                doilist.append({"doi": entry['doi'],
+                            "file_id": entry['file_id'],
+                            "phs_accession": entry['phs_accession'],
+                            "protocol_name": entry['protocol_name'],
+                            "protocol_pk_id": entry['protocol_pk_id'],
+                            "protocol_type": entry['protocol_type'],
+                            "file_name": fileinfo['file_name'],
+                            "file_type": fileinfo['file_type'],
+                            "file_description": fileinfo['file_description'],
+                            "release_datetime": fileinfo['release_datetime']
+                            })
     doi_df = pd.DataFrame(doilist)
     return doi_df
 
@@ -227,38 +380,9 @@ def main(args):
         conn = sqlite3.connect(f"{writedir}{configs['sqlitefile']}")
         cursor = conn.cursor()
         #cursor.execute("CREATE TABLE fileinfo(title, filename, filetype, doi)")
-        cursor.execute("CREATE TABLE fileinfo(doi,phs, protocol_name, protocol_pk_id, protocol_type)")
+        cursor.execute("CREATE TABLE fileinfo(doi,file_id,phs, protocol_name, protocol_pk_id, protocol_type,file_name, filet_type, file_description,release_datetime)")
 
 
-    ###########################################
-    #                                         #
-    #                 API Queries             #
-    #                                         #
-    ###########################################
-
-    '''allquery = """
-            query allProtocols(
-                $phs: String!,
-                $first: Int
-                $offset: Int
-            ){
-                protocolsCount(phs_accession: $phs)
-                protocols(phs_accession: $phs, first: $first, offset: $offset){
-                    doi
-                    phs_accession
-                    protocol_name
-                    protocol_pk_id
-                    protocol_type
-                }
-            }
-            """
-        
-    protocolcountquery = """
-            query protocolCount($phs: String!){
-                protocolsCount(phs_accession: $phs)
-            }
-        """
-'''
     ###########################################
     #                                         #
     #                 ALL scope               #
@@ -288,7 +412,7 @@ def main(args):
         #        doilist.append(entry)
         #doi_df = pd.DataFrame(doilist)
 
-        doi_df = buildDOIDataFrame()
+        doi_df = buildDOIDataFrame(configs['apiurl'])
 
         if args.verbose >= 1:
             print("Clearing existing database")
@@ -296,7 +420,7 @@ def main(args):
 
         if args.verbose >= 1:
             print("Writing individual DOI files")
-        writeDOIFiles(doi_df,writedir, logo, args.verbose)
+        writeDOIFiles(doi_df,writedir, logo, configs['apiurl'], args.verbose)
 
         if args.verbose >= 3:
             print(doi_df.head())
@@ -308,7 +432,7 @@ def main(args):
         for index, row in doi_df.iterrows():
             temp = row.values.flatten().tolist()
             newlist.append(temp)
-        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?,?)", newlist)
+        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?,?,?,?,?,?,?)", newlist)
         conn.commit()
 
     
@@ -347,7 +471,7 @@ def main(args):
         doi_df = pullKnownFiles(doi_df, cursor)
         if args.verbose >= 1:
             print("Writing new DOI files")
-        dbdata = writeDOIFiles(doi_df, configs['writedir'], logo)
+        dbdata = writeDOIFiles(doi_df, configs['writedir'], configs['apiurl'], logo)
         if args.verbose >= 1:
             print(f"Updating database {configs['sqlitefile']} with new files")
         if args.verbose >= 2:

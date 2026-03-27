@@ -1,6 +1,6 @@
 #xlfile:  '/media/vmshare/caNano/Protocols-With-DOIs-8-15-25.xlsx'
 #sheet: 'Sheet1'
-xlfile: '/media/vmshare/caNano/GC Data Mapping_submission_templates_12032025.xlsx'
+xlfile: '/media/sf_VMShare/caNano/GC Data Mapping_submission_templates_12032025.xlsx'
 sheet: 
   - 'Protocol'
   - 'Publication'

@@ -171,6 +171,8 @@ def processFileName(filename):
 
 
 def writeDOIFiles(doi_df, writedir, logo):
+    # TODO: If protocol file name is None, don't add a link
+    # TODO: Try and figure out which files 404 at DCF
 
     main_df = doi_df['Protocol']
     dbdata = []

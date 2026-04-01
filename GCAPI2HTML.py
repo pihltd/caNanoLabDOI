@@ -114,7 +114,6 @@ def readXL(xlfile, sheetlist):
     return df_collection
 
 def getFileURL(filename, url):
-    #url = "https://general.datacommons.cancer.gov/v1/graphql/"
     vars = {"phs_accession": "10.17917", "file_name": filename}
     filequery = """
         query caNanoFiles(
@@ -131,10 +130,8 @@ def getFileURL(filename, url):
         }"""
     
     result = runBentoAPIQuery(url=url, query=filequery, variables=vars)
-    #print(f"Filename: {filename}\nResult: {result}\n")
     resultlist = result['data']['files']
     if len(resultlist) >= 1:
-        #return resultlist[0]['file_id'].split("/")[-1]
         temp = resultlist[0]['file_id']
         fileid = temp.split("/")[-1]
         return f"https://nci-crdc.datacommons.io/user/data/download/{fileid}"
@@ -161,13 +158,9 @@ def processFileName(filename):
 
 
 def writeDOIFiles(doi_df, writedir, logo, graphqlurl, verbose=0):
-
-    #main_df = doi_df['Protocol']
-    #dbdata = []
-    
-
     for index, row in doi_df.iterrows():
-        print(row)
+        if verbose >= 2:
+            print(row)
         if row['doi'] is not None:
             outfile = f"{writedir}{row['protocol_pk_id']}.html"
             if verbose >= 2:
@@ -188,13 +181,18 @@ def writeDOIFiles(doi_df, writedir, logo, graphqlurl, verbose=0):
                 f.write(separator)
                 f.write("<p><b>Protocol Type:</b> {}</p>".format(row.protocol_type))
                 f.write("<p><b>Protocol Name:</b> {}</p>".format(row.protocol_name))
+                # TODO: Protocol abbreviation and version are lost, they're not captured in GC
                 #f.write("<p><b>Protocol Abbreviation:</b> {}</p>".format(row.protocol_abbreviation))
                 #f.write("<p><b>Protocol Version:</b> {}".format(row.protocol_version))
                 f.write(separator)
                 f.write("<p><b>DOI:</b> <a href = {}>{}</a></p>".format(url, url))
-                f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
-                #f.write("<p><b>Protocol File:</b> {}".format(row.file_name))
+                if file_url is None:
+                    f.write("<p><b>Protocol File: </b>{}</p>".format(filename))
+                else:
+                    f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
+                # TODO: File title is lost.  Not sure what it is anyways.
                 #f.write("<p><b>File Title:</b> {}</p>".format(row.title))
+                # TODO: To get descriptions back, do an update submission to GC and put the exsitng descriptions into the file_description field.
                 #f.write("<p><b>Description:</b></b> {}".format(row.description))
                 f.write(separator)
                 f.write("<p><b>Resource Type:</b>  Protocol</p>")
@@ -222,7 +220,7 @@ def writeIndexFile(cursor, writedir, logo, verbose=0):
         r.write("<th>DOI</th>")
         r.write("<th>Title</th>")
         r.write("</tr>")
-        for row in cursor.execute("SELECT protocol_name, filename, filetype, doi FROM fileinfo"):
+        for row in cursor.execute("SELECT protocol_name, file_name, file_type, doi FROM fileinfo"):
             url = "https://cbiit.github.io/NCI-DOI-LandingPages/caNanoLab/{}".format(f"{row[1]}.html")
             r.write("<tr><td><a href={}>{}</a></td><td>{}</td></tr>".format(url, row[3], row[0]))
         r.write("</table")
@@ -236,19 +234,22 @@ def pullKnownFiles(df, cursor):
     # NOTE: This needs an update to work with info from the API
     known = []
     seriieslist = []
-    #main_df = df['Protocol']
 
-    for row in cursor.execute("SELECT filename FROM fileinfo "):
+    # Create a list of known files from the sqlite db
+    for row in cursor.execute("SELECT file_name FROM fileinfo "):
+        # Is file_id a better thing here
         known.append(row[0])
+    
+    # Go through the df pulled from the API and delete anything that's already in the db.
     for index, row in df.iterrows():
-        if f"{row.protocol_pk_id}.md" not in known:
+        if f"{row.protocol_pk_id}.html" not in known:
             seriieslist.append(row)
     new_df = pd.DataFrame(seriieslist)
-    df['Protocol'] = new_df
-    return df
+
+    return new_df
 
 def deleteTest(cursor, conn):
-    cursor.execute("DELETE FROM fileinfo WHERE filename LIKE '11413115%'")
+    cursor.execute("DELETE FROM fileinfo WHERE file_name LIKE '11413115%'")
     conn.commit()
 
 def runBentoAPIQuery(url, query, variables=None):
@@ -268,7 +269,7 @@ def runBentoAPIQuery(url, query, variables=None):
     else:
         return (f"Error Code: {results.status_code}\n{results.content}")
 
-def buildDOIDataFrame(apiurl):
+def buildDOIDataFrame(apiurl, verbose=0):
     allquery = """
          query allProtocols(
                 $phs: String!,
@@ -308,7 +309,6 @@ def buildDOIDataFrame(apiurl):
             }
     """
 
-    #devurl = 'https://general-dev2.datacommons.cancer.gov/v1/graphql/'
     countvars =  {"phs":"10.17917"}
 
     countres = runBentoAPIQuery(apiurl, protocolcountquery,countvars)
@@ -336,8 +336,9 @@ def buildDOIDataFrame(apiurl):
             else:
                 filevars = {"phs_accession": "10.17917", "file_ids": [entry['file_id']]}
                 fileres = runBentoAPIQuery(apiurl, filequery, filevars)
-                print(filevars)
-                print(fileres)
+                if verbose >= 3:
+                    print(filevars)
+                    print(fileres)
                 fileinfo = fileres['data']['files'][0]
                 doilist.append({"doi": entry['doi'],
                             "file_id": entry['file_id'],
@@ -352,6 +353,9 @@ def buildDOIDataFrame(apiurl):
                             })
     doi_df = pd.DataFrame(doilist)
     return doi_df
+
+
+
 
 def main(args):
     logo = '<img src="./assets/images/crdc-logo.svg" alt="CRDC General Commons Logo">'
@@ -380,7 +384,20 @@ def main(args):
         conn = sqlite3.connect(f"{writedir}{configs['sqlitefile']}")
         cursor = conn.cursor()
         #cursor.execute("CREATE TABLE fileinfo(title, filename, filetype, doi)")
-        cursor.execute("CREATE TABLE fileinfo(doi,file_id,phs, protocol_name, protocol_pk_id, protocol_type,file_name, filet_type, file_description,release_datetime)")
+        cursor.execute("CREATE TABLE fileinfo(doi,file_id,phs, protocol_name, protocol_pk_id, protocol_type,file_name, file_type, file_description,release_datetime)")
+    #######################################################################
+        # Table columns and explanations
+        # doi:  The DOI value for the file/protocol
+        # file_id: The CRDC ID for the file.  The UUID portaion is used to get the signed URL from DCF
+        # phs:  The phs nubmer of the project (in this case the DOI root)
+        # protocol name: The protocol name.
+        # protocol_pk_id.  Is used to name the html file.
+        # protocol_type: The curated type of protocol provided with the submission
+        # file_name: Text name of the file that can be downloaded 
+        # file_type:  Hard coded to "protocol"
+        # file_description: Text description of the file
+        # release_datetime: The timestamp for the file release.
+   
 
 
     ###########################################
@@ -394,23 +411,6 @@ def main(args):
             print("Scope is all pages")
             print("Getting list of existing files")
 
-
-        #devurl = 'https://general-dev2.datacommons.cancer.gov/v1/graphql/'
-        #countvars =  {"phs":"GC000001"}
-
-        #countres = runBentoAPIQuery(devurl, protocolcountquery,countvars)
-        #count = countres['data']['protocolsCount']
-        #print(f"Count: {count}")
-
-        #variables = {"phs":"GC000001", "first":count, "offset": 0}
-        #res = runBentoAPIQuery(devurl, allquery, variables)
-
-        #doilist = []
-        #count = res['data']['protocolsCount']
-        #for entry in res['data']['protocols']:
-        #    if '10' in entry['doi']:
-        #        doilist.append(entry)
-        #doi_df = pd.DataFrame(doilist)
 
         doi_df = buildDOIDataFrame(configs['apiurl'])
 
@@ -427,7 +427,6 @@ def main(args):
         
         if args.verbose >= 1:
             print(f"Adding info to database {configs['sqlitefile']}")
-        #newlist =  [[value for value in d.values()]for d in doilist]
         newlist = []
         for index, row in doi_df.iterrows():
             temp = row.values.flatten().tolist()
@@ -459,28 +458,33 @@ def main(args):
         #
         #     FOR TESTING ONLY
         #
-        # deleteTest(cursor, conn)
+        #deleteTest(cursor, conn)
         #
         #      FOR TESTING ONLY
         #
+
         if args.verbose >= 1:
             print("Scope is new pages only")
-        doi_df = buildDOIDataFrame()
+        doi_df = buildDOIDataFrame(configs['apiurl'])
         if args.verbose >= 1:
             print("Removing existing files")
         doi_df = pullKnownFiles(doi_df, cursor)
         if args.verbose >= 1:
             print("Writing new DOI files")
-        dbdata = writeDOIFiles(doi_df, configs['writedir'], configs['apiurl'], logo)
+        writeDOIFiles(doi_df=doi_df, writedir=writedir, logo=logo, graphqlurl=configs['apiurl'], verbose=args.verbose)
         if args.verbose >= 1:
             print(f"Updating database {configs['sqlitefile']} with new files")
         if args.verbose >= 2:
-            print(f"Data Update:\n{dbdata}")
-        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?)", dbdata)
+            print(f"Data Update:\n{doi_df}")
+        newlist = []
+        for index, row in doi_df.iterrows():
+            temp = row.values.flatten().tolist()
+            newlist.append(temp)
+        cursor.executemany("INSERT INTO fileinfo VALUES(?,?,?,?,?,?,?,?,?,?)", newlist)
         conn.commit()
         if args.verbose >= 1:
             print("Writing new index.html file")
-        writeIndexFile(cursor, configs['writedir'], logo)
+        writeIndexFile(cursor, configs['writedir'], logo, args.verbose)
 
     else:
         print('Incorrect scope setting, must be one of "all", "new", or "index"')

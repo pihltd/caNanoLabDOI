@@ -200,7 +200,10 @@ def writeDOIFiles(doi_df, writedir, logo):
                 f.write("<p><b>Protocol Version:</b> {}".format(row.protocol_version))
                 f.write(separator)
                 f.write("<p><b>DOI:</b> <a href = {}>{}</a></p>".format(url, url))
-                f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
+                if file_url is None:
+                    f.write("<p><b>Protocol File: </b>{}</p>".format(filename))
+                else:
+                    f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
                 f.write("<p><b>File Title:</b> {}</p>".format(row.title))
                 f.write("<p><b>Description:</b></b> {}".format(row.description))
                 f.write(separator)

@@ -7,6 +7,7 @@ import os
 import sqlite3
 import requests
 import json
+from rich.progress import Progress
 import sys
 
 
@@ -158,49 +159,52 @@ def processFileName(filename):
 
 
 def writeDOIFiles(doi_df, writedir, logo, graphqlurl, verbose=0):
-    for index, row in doi_df.iterrows():
-        if verbose >= 2:
-            print(row)
-        if row['doi'] is not None:
-            outfile = f"{writedir}{row['protocol_pk_id']}.html"
+    with Progress() as p:
+        t=p.add_task("Writing HTML files....", total=len(doi_df))
+        for index, row in doi_df.iterrows():
             if verbose >= 2:
-                print(f"Writing {outfile}")
-            with open(outfile, 'w') as f:
-                url = f"http://dx.doi.org/{row.doi.strip()}"
-                # Need to grab file name and file URL to boot
-                filename = processFileName(row.file_name)
-                if filename is not None:
-                    file_url = getFileURL(filename, graphqlurl)
-                else:
-                    file_url = None
-                f.write(pageheader1.format(url))
-                f.write(pageheader2)
-                f.write("<body>")
-                f.write(logo)
-                f.write(header)
-                f.write(separator)
-                f.write("<p><b>Protocol Type:</b> {}</p>".format(row.protocol_type))
-                f.write("<p><b>Protocol Name:</b> {}</p>".format(row.protocol_name))
-                # TODO: Protocol abbreviation and version are lost, they're not captured in GC
-                #f.write("<p><b>Protocol Abbreviation:</b> {}</p>".format(row.protocol_abbreviation))
-                #f.write("<p><b>Protocol Version:</b> {}".format(row.protocol_version))
-                f.write(separator)
-                f.write("<p><b>DOI:</b> <a href = {}>{}</a></p>".format(url, url))
-                if file_url is None:
-                    f.write("<p><b>Protocol File: </b>{}</p>".format(filename))
-                else:
-                    f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
-                # TODO: File title is lost.  Not sure what it is anyways.
-                #f.write("<p><b>File Title:</b> {}</p>".format(row.title))
-                # TODO: To get descriptions back, do an update submission to GC and put the exsitng descriptions into the file_description field.
-                #f.write("<p><b>Description:</b></b> {}".format(row.description))
-                f.write(separator)
-                f.write("<p><b>Resource Type:</b>  Protocol</p>")
-                f.write("<p><b>Data Access:</b> <a href ={}>{}</a><p>".format(gcurl, gcurl))
-                f.write(javascriptFetch)
-                f.write("</body>")
-                f.write("</html>")
-            f.close()
+                print(row)
+            if row['doi'] is not None:
+                outfile = f"{writedir}{row['protocol_pk_id']}.html"
+                if verbose >= 2:
+                    print(f"Writing {outfile}")
+                with open(outfile, 'w') as f:
+                    url = f"http://dx.doi.org/{row.doi.strip()}"
+                    # Need to grab file name and file URL to boot
+                    filename = processFileName(row.file_name)
+                    if filename is not None:
+                        file_url = getFileURL(filename, graphqlurl)
+                    else:
+                        file_url = None
+                    f.write(pageheader1.format(url))
+                    f.write(pageheader2)
+                    f.write("<body>")
+                    f.write(logo)
+                    f.write(header)
+                    f.write(separator)
+                    f.write("<p><b>Protocol Type:</b> {}</p>".format(row.protocol_type))
+                    f.write("<p><b>Protocol Name:</b> {}</p>".format(row.protocol_name))
+                    # TODO: Protocol abbreviation and version are lost, they're not captured in GC
+                    #f.write("<p><b>Protocol Abbreviation:</b> {}</p>".format(row.protocol_abbreviation))
+                    #f.write("<p><b>Protocol Version:</b> {}".format(row.protocol_version))
+                    f.write(separator)
+                    f.write("<p><b>DOI:</b> <a href = {}>{}</a></p>".format(url, url))
+                    if file_url is None:
+                        f.write("<p><b>Protocol File: </b>{}</p>".format(filename))
+                    else:
+                        f.write("<p><b>Protocol File: </b><a href = {} id=\"downloadLink\">{}</a></p>".format(file_url, filename))
+                    # TODO: File title is lost.  Not sure what it is anyways.
+                    #f.write("<p><b>File Title:</b> {}</p>".format(row.title))
+                    # TODO: To get descriptions back, do an update submission to GC and put the exsitng descriptions into the file_description field.
+                    #f.write("<p><b>Description:</b></b> {}".format(row.description))
+                    f.write(separator)
+                    f.write("<p><b>Resource Type:</b>  Protocol</p>")
+                    f.write("<p><b>Data Access:</b> <a href ={}>{}</a><p>".format(gcurl, gcurl))
+                    f.write(javascriptFetch)
+                    f.write("</body>")
+                    f.write("</html>")
+                f.close()
+            p.update(t, advance=1)
 
 
 
@@ -313,44 +317,54 @@ def buildDOIDataFrame(apiurl, verbose=0):
 
     countres = runBentoAPIQuery(apiurl, protocolcountquery,countvars)
     count = countres['data']['protocolsCount']
+    offset = 0
+    first = 50
 
-    variables = {"phs":"10.17917", "first":count, "offset": 0}
-    res = runBentoAPIQuery(apiurl, allquery, variables)
-
+    # NOTE: first controls the number of returned values, offset is the number of records to skip.  So first ould be a constant, offset should increment.
+    # TODO:  I think I need to loop this, right now it gets all protocols in one go.
     doilist = []
-    count = res['data']['protocolsCount']
-    for entry in res['data']['protocols']:
-        if  entry['doi'] is not np.nan:
-            if entry['file_id'] is None:
-                doilist.append({"doi": entry['doi'],
-                            "file_id": entry['file_id'],
-                            "phs_accession": entry['phs_accession'],
-                            "protocol_name": entry['protocol_name'],
-                            "protocol_pk_id": entry['protocol_pk_id'],
-                            "protocol_type": entry['protocol_type'],
-                            "file_name": None,
-                            "file_type": None,
-                            "file_description": None,
-                            "release_datetime": None
-                            })
-            else:
-                filevars = {"phs_accession": "10.17917", "file_ids": [entry['file_id']]}
-                fileres = runBentoAPIQuery(apiurl, filequery, filevars)
-                if verbose >= 3:
-                    print(filevars)
-                    print(fileres)
-                fileinfo = fileres['data']['files'][0]
-                doilist.append({"doi": entry['doi'],
-                            "file_id": entry['file_id'],
-                            "phs_accession": entry['phs_accession'],
-                            "protocol_name": entry['protocol_name'],
-                            "protocol_pk_id": entry['protocol_pk_id'],
-                            "protocol_type": entry['protocol_type'],
-                            "file_name": fileinfo['file_name'],
-                            "file_type": fileinfo['file_type'],
-                            "file_description": fileinfo['file_description'],
-                            "release_datetime": fileinfo['release_datetime']
-                            })
+    with Progress() as p:
+        t = p.add_task("Querying GC for protocols.....", total=count)
+        while offset < count:
+            variables = {"phs":"10.17917", "first": first, "offset": offset}
+            res = runBentoAPIQuery(apiurl, allquery, variables)
+
+            #doilist = []
+            #count = res['data']['protocolsCount']
+            for entry in res['data']['protocols']:
+                if  entry['doi'] is not np.nan:
+                    if entry['file_id'] is None:
+                        doilist.append({"doi": entry['doi'],
+                                "file_id": entry['file_id'],
+                                "phs_accession": entry['phs_accession'],
+                                "protocol_name": entry['protocol_name'],
+                                "protocol_pk_id": entry['protocol_pk_id'],
+                                "protocol_type": entry['protocol_type'],
+                                "file_name": None,
+                                "file_type": None,
+                                "file_description": None,
+                                "release_datetime": None
+                                })
+                    else:
+                        filevars = {"phs_accession": "10.17917", "file_ids": [entry['file_id']]}
+                        fileres = runBentoAPIQuery(apiurl, filequery, filevars)
+                        if verbose >= 3:
+                            print(filevars)
+                            print(fileres)
+                        fileinfo = fileres['data']['files'][0]
+                        doilist.append({"doi": entry['doi'],
+                                "file_id": entry['file_id'],
+                                "phs_accession": entry['phs_accession'],
+                                "protocol_name": entry['protocol_name'],
+                                "protocol_pk_id": entry['protocol_pk_id'],
+                                "protocol_type": entry['protocol_type'],
+                                "file_name": fileinfo['file_name'],
+                                "file_type": fileinfo['file_type'],
+                                "file_description": fileinfo['file_description'],
+                                "release_datetime": fileinfo['release_datetime']
+                                })
+            offset = offset+first
+            p.update(t, advance=first)
     doi_df = pd.DataFrame(doilist)
     return doi_df
 

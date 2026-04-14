@@ -1,10 +1,15 @@
 import pandas as pd
 import yaml
 from crdclib import crdclib
-from tqdm import tqdm
+from rich.progress import Progress
 
 def getSampleInfo(url):
 
+    countQuery = """
+        query getSamplesCount(
+        $phs_accession: String!){
+        samplesCount(phs_accession:$phs_accession)}
+    """
     #TODO: Revist retunred info after GC fixes the API bug. Sample Name does not appear to be in the schema but the data may be in sample description
     sampleQuery = """
     query getAllCaNanoSamples(
@@ -24,19 +29,28 @@ def getSampleInfo(url):
         }
     }"""
 
+    #Get the total sample count
+    samplecountjson = crdclib.runBentoAPIQuery(url=url, query=countQuery, variables={"phs_accession":"10.17917"})
+    samplecount = int(samplecountjson['data']['samplesCount'])
+
+
     first = 100
     offset = 0
     finalSampleList = []
-    while offset >= 0:
-        sampleVars = {"phs_accession": "10.17917", "first": first, "offset": offset}
-        sampleinfo = crdclib.runBentoAPIQuery(url=url, query=sampleQuery, variables=sampleVars)
-        sampleList = sampleinfo['data']['samples']
-        if len(sampleList) == 100:
-            offset = offset+100
-        else:
-            offset = -1
-        for entry in sampleList:
-            finalSampleList.append(entry)
+    with Progress() as p:
+        t=p.add_task("Collecting Initial Sample Info....", total=samplecount)
+        while offset >= 0:
+            sampleVars = {"phs_accession": "10.17917", "first": first, "offset": offset}
+            sampleinfo = crdclib.runBentoAPIQuery(url=url, query=sampleQuery, variables=sampleVars)
+            sampleList = sampleinfo['data']['samples']
+            # If the sampleList is less than first, it means it's the last set of results and the loop should end
+            if len(sampleList) == first:
+                offset = offset+first
+            else:
+                offset = -1
+            for entry in sampleList:
+                finalSampleList.append(entry)
+            p.update(t, advance=first)
     return finalSampleList
         
 
@@ -111,17 +125,50 @@ def getPublicationInfo(sampleID, url):
     return pubDictionary['data']['publications']
 
 
+def listify(startstring):
+    startstring = startstring.replace("[","")
+    startstring = startstring.replace("]","")
+    startstring = startstring.replace("' ", "")
+    startstring = startstring.replace("'", "")
+    startstring = startstring.replace('"',"")
+    startlist = startstring.split(",")
+    newlist = []
+    for entry in startlist:
+        entry = entry.strip()
+        newlist.append(crdclib.cleanString(entry, True))
+    return newlist
+
+
 def buildReportDictionary(sample, complist, charlist, publist):
     final = {}
+    newcomplist = []
+    newcharlist = []
+
+    for entry in complist:
+        netlist = listify(entry['Nanomaterial_Entity_Type'])
+        feiftlist = listify(entry['Functionalizing_Entity_Inherent_Function_Type'])
+        fetlist = listify(entry['Functionalizing_Entity_Type'])
+        newcomplist.append({"Composition_ID":entry['Composition_ID'],
+                           'Nanomaterial_Entity_Type': netlist,
+                            'Functionalizing_Entity_Inherent_Function_Type': feiftlist,
+                             'Functionalizing_Entity_Type': fetlist })
+        
+    for entry in charlist:
+        charnamelist = listify(entry['Characterization_Name'])
+        newcharlist.append({'Characterization_ID': entry['Characterization_ID'],
+                            'Characterization_Name': charnamelist,
+                            'Characterization_Assay_Type': entry['Characterization_Assay_Type']})
+
+
 
     #Sample Handling
     final['Sample'] = sample
 
     # Composition Handling
-    final['Composition'] = complist
+    final['Composition'] = newcomplist
 
     # Characterization handling
-    final['Characterization'] = charlist
+    final['Characterization'] = newcharlist
 
     # Publication handling
     final['Publication'] = publist
@@ -136,31 +183,39 @@ def writeYAML(filename, jsonobj):
     f.close()
 
 
-#
-# Temporary:  Read sample information from a csv
-#
+graphqlurl = 'https://general-dev2.datacommons.cancer.gov/v1/graphql/'
 
-# samplelist = getSampleInfo(graphqlurl)
+samplelist = getSampleInfo(graphqlurl)
+sample_df = pd.DataFrame(samplelist)
 
-samplefile = '/media/sf_VMShare/caNano/GC_sample_Download 2026-04-01 08-33-07.csv'
-sample_df = pd.read_csv(samplefile, sep=",")
-graphqlurl = 'https://general.datacommons.cancer.gov/v1/graphql/'
+#samplefile = '/media/sf_VMShare/caNano/GC_sample_Download 2026-04-01 08-33-07.csv'
+#sample_df = pd.read_csv(samplefile, sep=",")
+
 reportDir = "./sampleReports/"
-progress_bar = tqdm(total=len(sample_df))
+with Progress() as p:
+    t = p.add_task("Creating Sample reports.....", total=len(sample_df))
 
-for index, row in sample_df.iterrows():
-    complist = getCompositionInfo(row['Sample ID'], graphqlurl)
-    charlist = getCharacterizationInfo(row['Sample ID'], graphqlurl)
-    publist = getPublicationInfo(row['Sample ID'], graphqlurl)
-    reportFileName = f"{reportDir}{row['Sample ID']}_Sample_Report_API.yml"
-    # Temp until API works:
-    sampledict = {"sample_id": row['Sample ID'],
-                  "Sample_Name": row['Sample Name'],
-                  "Organization_Name": row['Organization Name']}
-    
+    for index, row in sample_df.iterrows():
+        #complist = getCompositionInfo(row['Sample ID'], graphqlurl)
+        complist = getCompositionInfo(row['sample_id'], graphqlurl)
+        #charlist = getCharacterizationInfo(row['Sample ID'], graphqlurl)
+        charlist = getCharacterizationInfo(row['sample_id'], graphqlurl)
+        #publist = getPublicationInfo(row['Sample ID'], graphqlurl)
+        publist = getPublicationInfo(row['sample_id'], graphqlurl)
+        #reportFileName = f"{reportDir}{row['Sample ID']}_Sample_Report_API.yml"
+        reportFileName = f"{reportDir}{row['sample_id']}_Sample_Report_API.yml"
+        # Temp until API works:
+        #sampledict = {"sample_id": row['Sample ID'],
+        #            "Sample_Name": row['Sample Name'],
+        #            "Organization_Name": row['Organization Name']}
+        sampledict = {"sample_id": row['sample_id'],
+                    "Sample_Description": row['sample_description'],
+                    "Organization_Name": row['Organization_Name'],
+                    "Sample_Type": row['sample_type']}
+        
 
-    reportDicttionary = buildReportDictionary(sample=sampledict, complist=complist, charlist=charlist, publist=publist)
+        reportDicttionary = buildReportDictionary(sample=sampledict, complist=complist, charlist=charlist, publist=publist)
 
-    writeYAML(reportFileName, reportDicttionary)
-    progress_bar.update(1)
+        writeYAML(reportFileName, reportDicttionary)
+        p.update(t, advance=1)
     
